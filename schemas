@@ -1,0 +1,39 @@
+sqlite> .schema client
+CREATE TABLE client (
+email text not null unique,
+status integer default 0 not null,
+password text not null
+, date text default CURRENT_TIMESTAMP, apikey text, recover_key text, recover_date text default NULL) strict;
+sqlite> .schema network
+CREATE TABLE network (
+email text not null,
+uid text not null unique,
+date text default CURRENT_TIMESTAMP,
+description text not null,
+subnet text not null,
+netmask text not null,
+embassy_certificate text not null,
+embassy_privatekey text not null,
+embassy_serial integer not null,
+passport_certificate text not null,
+passport_privatekey text not null
+) strict;
+sqlite> .schema node
+CREATE TABLE node (
+status integer default 0 not null,
+provkey text,
+date text default CURRENT_TIMESTAMP not null,
+ipsrc text,
+network_uid text,
+uid text not null,
+description text not null,
+prov_date text
+) strict;
+sqlite> .schema ipv4
+CREATE TABLE ipv4 (
+network_uid text not null,
+node_uid text,
+address text,
+date text
+) strict;
+sqlite>

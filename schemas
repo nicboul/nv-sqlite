@@ -14,7 +14,7 @@ subnet text not null,
 netmask text not null,
 embassy_certificate text not null,
 embassy_privatekey text not null,
-embassy_serial integer not null,
+embassy_serial integer not null DEFAULT 1,
 passport_certificate text not null,
 passport_privatekey text not null
 ) strict;

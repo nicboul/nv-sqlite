@@ -38,10 +38,11 @@ static char *client_password_reset_sql = "UPDATE client SET password = ?, recove
 
 static sqlite3_stmt *network_create_stmt;
 static char *network_create_sql = "INSERT INTO network (email, uid, description, subnet, netmask, "
-					"embassy_certificate, embassy_privatekey, embassy_serial, "
+					"embassy_certificate, embassy_privatekey, "
 					"passport_certificate, passport_privatekey) "
-					"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+					"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
+// FIXME we need uid for this query
 static sqlite3_stmt *network_get_stmt;
 static char *network_get_sql = "SELECT uid, subnet, netmask FROM network "
 				"WHERE email = ? "
@@ -325,8 +326,8 @@ ldb_fini()
 
 int
 ldb_network_create(const char *email, const char *uid, const char *description,
-	    const char *subnet, const char *netmask, const char *embassy_certificate,
-	    const char *embassy_privatekey, int embassy_serial,
+	    const char *subnet, const char *netmask,
+	    const char *embassy_certificate, const char *embassy_privatekey,
 	    const char *passport_certificate, const char *passport_privatekey)
 {
 	int	ret;
@@ -380,19 +381,13 @@ ldb_network_create(const char *email, const char *uid, const char *description,
 		goto error;
 	}
 
-	ret = sqlite3_bind_int(network_create_stmt, 8, embassy_serial);
+	ret = sqlite3_bind_text(network_create_stmt, 8, passport_certificate, -1, NULL);
 	if (ret != SQLITE_OK) {
 		line = __LINE__;
 		goto error;
 	}
 
-	ret = sqlite3_bind_text(network_create_stmt, 9, passport_certificate, -1, NULL);
-	if (ret != SQLITE_OK) {
-		line = __LINE__;
-		goto error;
-	}
-
-	ret = sqlite3_bind_text(network_create_stmt, 10, passport_privatekey, -1, NULL);
+	ret = sqlite3_bind_text(network_create_stmt, 9, passport_privatekey, -1, NULL);
 	if (ret != SQLITE_OK) {
 		line = __LINE__;
 		goto error;
@@ -408,6 +403,47 @@ ldb_network_create(const char *email, const char *uid, const char *description,
 		line = __LINE__;
 		goto error;
 	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+int
+ldb_network_get(const char *email, const char *description,
+	    const unsigned char **uid, const unsigned char **subnet, const unsigned char **netmask)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(network_get_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_get_stmt, 1, email, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_get_stmt, 2, description, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(network_get_stmt);
+	if (ret != SQLITE_ROW) {
+		line = __LINE__;
+		goto error;
+	}
+
+	*uid = sqlite3_column_text(network_get_stmt, 0);
+	*subnet = sqlite3_column_text(network_get_stmt, 1);
+	*netmask = sqlite3_column_text(network_get_stmt, 2);
 
 	return (0);
 error:
@@ -469,6 +505,12 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare_v2(ldb, network_get_sql, -1, &network_get_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -493,9 +535,16 @@ main(void)
 	ldb_client_recover("my_email", "my_recover_key");
 	ldb_client_password_reset("my_email", "new_password", "my_recover_key");
 
-	ldb_network_create("my_email", "uid", "description", "subnet", "netmask",
-	    "embassy_certificate", "embassy_privatekey", 1,
-	    "passport_certificate", "passport_privatekey");
+	ldb_network_create("my_email", "my_uid", "my_description", "my_subnet", "my_netmask",
+	    "my_embassy_certificate", "my_embassy_privatekey",
+	    "my_passport_certificate", "my_passport_privatekey");
+
+	const unsigned char *uid = NULL;
+	const unsigned char *subnet = NULL;
+	const unsigned char *netmask = NULL;
+
+	ldb_network_get("my_email", "my_description", &uid, &subnet, &netmask);
+	printf("uid: %s, subnet: %s, netmask: %s\n", uid, subnet, netmask);
 
 	ldb_fini();
 

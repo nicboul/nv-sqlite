@@ -48,6 +48,13 @@ static char *network_get_sql = "SELECT uid, subnet, netmask FROM network "
 				"WHERE email = ? "
 				"AND description = ?;";
 
+static sqlite3_stmt *network_list_stmt;
+static char *network_list_sql = "SELECT uid, description FROM network "
+				"WHERE network.email = client.email "
+				"AND cilent.email = LOWER(?) "
+				"AND client.apikey = ?;";
+
+
 // FIXME create foreign key from network + ON DELETE CASCADE and ON UPDATE CASCADE
 
 int
@@ -314,15 +321,6 @@ error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
 	return (-1);
 }
-void
-ldb_fini()
-{
-	sqlite3_finalize(client_create_stmt);
-	client_create_stmt = NULL;
-
-	sqlite3_close(ldb);
-	ldb = NULL;
-}
 
 int
 ldb_network_create(const char *email, const char *uid, const char *description,
@@ -452,6 +450,57 @@ error:
 }
 
 int
+ldb_network_list(const char *email, const char *apikey,
+	int (*cb)(const unsigned char *, const unsigned char *, void *),
+	void *store)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(network_list_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_list_stmt, 1, email, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_list_stmt, 1, email, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	/* We don't distinguish between a client without a network
+	 * and bad credentials.
+	 */
+	while (sqlite3_step(network_list_stmt) == SQLITE_ROW) {
+		cb(sqlite3_column_text(network_list_stmt, 0),
+		    sqlite3_column_text(network_list_stmt, 1),
+		    store);
+	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+void
+ldb_fini()
+{
+	sqlite3_finalize(client_create_stmt);
+	client_create_stmt = NULL;
+
+	sqlite3_close(ldb);
+	ldb = NULL;
+}
+
+int
 ldb_init(const char *filename)
 {
 	int	ret;
@@ -506,6 +555,12 @@ ldb_init(const char *filename)
 	}
 
 	ret = sqlite3_prepare_v2(ldb, network_get_sql, -1, &network_get_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_prepare_v2(ldb, network_list_sql, -1, &network_list_stmt, 0);
 	if (ret != SQLITE_OK) {
 		line = __LINE__;
 		goto error;

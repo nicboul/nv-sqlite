@@ -49,10 +49,15 @@ static char *network_get_sql = "SELECT uid, subnet, netmask FROM network "
 				"AND description = ?;";
 
 static sqlite3_stmt *network_list_stmt;
-static char *network_list_sql = "SELECT uid, description FROM network "
+static char *network_list_sql = "SELECT uid, description FROM network,client "
 				"WHERE network.email = client.email "
-				"AND cilent.email = LOWER(?) "
+				"AND client.email = LOWER(?) "
 				"AND client.apikey = ?;";
+
+static sqlite3_stmt *network_embassy_get_stmt;
+static char *network_embassy_get_sql = "SELECT embassy_certificate, embassy_privatekey, embassy_serial "
+					"FROM network "
+					"WHERE uid = ?;";
 
 
 // FIXME create foreign key from network + ON DELETE CASCADE and ON UPDATE CASCADE
@@ -469,11 +474,13 @@ ldb_network_list(const char *email, const char *apikey,
 		goto error;
 	}
 
-	ret = sqlite3_bind_text(network_list_stmt, 1, email, -1, NULL);
+	ret = sqlite3_bind_text(network_list_stmt, 2, apikey, -1, NULL);
 	if (ret != SQLITE_OK) {
 		line = __LINE__;
 		goto error;
 	}
+
+	//printf("expand: %s\n", sqlite3_expanded_sql(network_list_stmt));
 
 	/* We don't distinguish between a client without a network
 	 * and bad credentials.
@@ -483,6 +490,43 @@ ldb_network_list(const char *email, const char *apikey,
 		    sqlite3_column_text(network_list_stmt, 1),
 		    store);
 	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+int
+ldb_network_embassy_get(const char *uid, const unsigned char **embassy_passport,
+	const unsigned char **embassy_privatekey, int *embassy_serial)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(network_embassy_get_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_embassy_get_stmt, 1, uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	printf("expand: %s\n", sqlite3_expanded_sql(network_embassy_get_stmt));
+
+	ret = sqlite3_step(network_embassy_get_stmt);
+	if (ret != SQLITE_ROW) {
+		line = __LINE__;
+		goto error;
+	}
+
+	*embassy_passport = sqlite3_column_text(network_embassy_get_stmt, 0);
+	*embassy_privatekey = sqlite3_column_text(network_embassy_get_stmt, 1);
+	*embassy_serial = sqlite3_column_int(network_embassy_get_stmt, 2);
 
 	return (0);
 error:
@@ -566,11 +610,25 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare_v2(ldb, network_embassy_get_sql, -1, &network_embassy_get_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
 	ldb_fini();
 	return (-1);
+}
+
+int
+network_list_cb(const unsigned char *uid, const unsigned char *description, void *store)
+{
+	printf("network_list_cb> uid:%s, description:%s\n", uid, description);
+
+	return (0);
 }
 
 int
@@ -600,6 +658,16 @@ main(void)
 
 	ldb_network_get("my_email", "my_description", &uid, &subnet, &netmask);
 	printf("uid: %s, subnet: %s, netmask: %s\n", uid, subnet, netmask);
+
+	ldb_network_list("my_email", "reset_apikey", network_list_cb, NULL);
+
+	const unsigned char *embassy_passport = NULL;
+	const unsigned char *embassy_privatekey = NULL;
+	int embassy_serial;
+
+	ldb_network_embassy_get("my_uid", &embassy_passport, &embassy_privatekey, &embassy_serial);
+	printf("passport: %s, privatekey:%s, serial:%d\n", embassy_passport, embassy_privatekey, embassy_serial);
+
 
 	ldb_fini();
 

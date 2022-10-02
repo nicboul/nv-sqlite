@@ -18,16 +18,18 @@ embassy_serial integer not null DEFAULT 1,
 passport_certificate text not null,
 passport_privatekey text not null
 ) strict;
+
 sqlite> .schema node
 CREATE TABLE node (
 status integer default 0 not null,
 provkey text,
 date text default CURRENT_TIMESTAMP not null,
 ipsrc text,
-network_uid text,
-uid text not null,
+network_uid text not null unique,
+uid text not null unique,
 description text not null,
 prov_date text
+
 ) strict;
 sqlite> .schema ipv4
 CREATE TABLE ipv4 (

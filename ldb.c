@@ -59,6 +59,15 @@ static char *network_embassy_get_sql = "SELECT embassy_certificate, embassy_priv
 					"FROM network "
 					"WHERE uid = ?;";
 
+static sqlite3_stmt *network_serial_inc_stmt;
+static char *network_serial_inc_sql = "UPDATE network "
+					"SET embassy_serial = embassy_serial + 1 "
+					"WHERE uid = ?;";
+
+
+static sqlite3_stmt *node_create_stmt;
+static char *node_create_sql = "INSERT INTO node (network_uid, uid, provkey, description) "
+				"VALUES (?, ?, ?, ?);";
 
 // FIXME create foreign key from network + ON DELETE CASCADE and ON UPDATE CASCADE
 
@@ -534,6 +543,92 @@ error:
 	return (-1);
 }
 
+int
+ldb_network_serial_inc(const char *uid)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(network_serial_inc_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_serial_inc_stmt, 1, uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	printf("expand: %s\n", sqlite3_expanded_sql(network_serial_inc_stmt));
+
+	ret = sqlite3_step(network_serial_inc_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	if (sqlite3_changes(ldb) != 1) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+int
+ldb_node_create(const char *network_uid, const char *uid,
+	const char *provkey, const char *description)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(node_create_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_create_stmt, 1, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_create_stmt, 2, uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_create_stmt, 3, provkey, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_create_stmt, 4, description, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(node_create_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
 void
 ldb_fini()
 {
@@ -616,6 +711,18 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare_v2(ldb, network_serial_inc_sql, -1, &network_serial_inc_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_prepare_v2(ldb, node_create_sql, -1, &node_create_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -668,6 +775,18 @@ main(void)
 	ldb_network_embassy_get("my_uid", &embassy_passport, &embassy_privatekey, &embassy_serial);
 	printf("passport: %s, privatekey:%s, serial:%d\n", embassy_passport, embassy_privatekey, embassy_serial);
 
+
+	ldb_network_serial_inc("my_uid");
+
+	ldb_network_embassy_get("my_uid", &embassy_passport, &embassy_privatekey, &embassy_serial);
+	printf("passport: %s, privatekey:%s, serial:%d\n", embassy_passport, embassy_privatekey, embassy_serial);
+
+
+	const unsigned char *node_uid = NULL;
+	const unsigned char *provkey = NULL;
+	const unsigned char *node_description = NULL;
+
+	ldb_node_create("my_uid", "my_node_uid", "my_provkey", "my_node_description");
 
 	ldb_fini();
 

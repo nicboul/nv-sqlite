@@ -1,5 +1,6 @@
 #include <sqlite3.h>
 #include <stdio.h>
+#include <unistd.h>
 
 static sqlite3	*ldb;
 
@@ -68,6 +69,19 @@ static char *network_serial_inc_sql = "UPDATE network "
 static sqlite3_stmt *node_create_stmt;
 static char *node_create_sql = "INSERT INTO node (network_uid, uid, provkey, description) "
 				"VALUES (?, ?, ?, ?);";
+
+static sqlite3_stmt *node_delete_stmt;
+static char *node_delete_sql = "DELETE FROM node "
+				"WHERE description = ? "
+				"AND node.network_uid IN (SELECT uid FROM network WHERE description = $1 "
+							 "AND email = (SELECT email FROM client WHERE email = ? AND apikey = ? AND status = 1)) "
+				"RETURNING node.uid, node.network_uid;";
+
+static sqlite3_stmt *node_status_set_stmt;
+static char *node_status_set_sql = "UPDATE node "
+					"SET status = ?, ipsrc = ? "
+					"WHERE uid = ? AND network_uid = ?;";
+
 
 // FIXME create foreign key from network + ON DELETE CASCADE and ON UPDATE CASCADE
 
@@ -629,11 +643,119 @@ error:
 	return (-1);
 }
 
+int
+ldb_node_delete(const char *node_description, const char *network_description,
+	const char *email, const char *apikey,
+	const unsigned char **node_uid, const unsigned char **network_uid)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(node_delete_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_delete_stmt, 1, node_description, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_delete_stmt, 2, network_description, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_delete_stmt, 3, email, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_delete_stmt, 4, apikey, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(node_delete_stmt);
+	if (ret != SQLITE_ROW) {
+		line = __LINE__;
+		goto error;
+	}
+
+	printf("expand: %s\n", sqlite3_expanded_sql(node_delete_stmt));
+
+	*node_uid = sqlite3_column_text(node_delete_stmt, 0);
+	*network_uid = sqlite3_column_text(node_delete_stmt, 1);
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+int
+ldb_node_status_set(int status, const char *ipsrc,
+	const char *node_uid, const char *network_uid)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(node_status_set_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_int(node_status_set_stmt, 1, status);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_status_set_stmt, 2, ipsrc, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_status_set_stmt, 3, node_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(node_status_set_stmt, 4, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(node_status_set_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
 void
 ldb_fini()
 {
 	sqlite3_finalize(client_create_stmt);
 	client_create_stmt = NULL;
+
+	sqlite3_finalize(node_delete_stmt);
+	node_delete_stmt = NULL;
+
 
 	sqlite3_close(ldb);
 	ldb = NULL;
@@ -723,6 +845,18 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare_v2(ldb, node_delete_sql, -1, &node_delete_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_prepare_v2(ldb, node_status_set_sql, -1, &node_status_set_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -781,12 +915,18 @@ main(void)
 	ldb_network_embassy_get("my_uid", &embassy_passport, &embassy_privatekey, &embassy_serial);
 	printf("passport: %s, privatekey:%s, serial:%d\n", embassy_passport, embassy_privatekey, embassy_serial);
 
+	ldb_node_create("my_uid", "my_node_uid", "my_provkey", "my_node_description");
+	ldb_node_create("my_uid", "my_node_uid2", "my_provkey", "my_node_description2");
 
 	const unsigned char *node_uid = NULL;
-	const unsigned char *provkey = NULL;
-	const unsigned char *node_description = NULL;
+	const unsigned char *network_uid = NULL;
+	ldb_node_delete("my_node_description", "my_description", "my_email", "reset_apikey", &node_uid, &network_uid);
+	printf("deleted node: node_uid:%s, network_uid:%s\n", node_uid, network_uid);
 
-	ldb_node_create("my_uid", "my_node_uid", "my_provkey", "my_node_description");
+
+	ldb_node_status_set(1, "127.0.0.1", "my_node_uid2", "my_uid");
+
+	sqlite3_db_cacheflush(ldb);
 
 	ldb_fini();
 

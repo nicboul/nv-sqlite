@@ -40,5 +40,6 @@ CREATE TABLE ipv4 (
 network_uid text not null unique,
 node_uid text unique,
 address text unique,
-date text
+date text,
+UNIQUE(network_uid, address)
 ) strict;

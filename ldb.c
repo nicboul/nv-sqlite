@@ -82,6 +82,15 @@ static char *node_status_set_sql = "UPDATE node "
 					"SET status = ?, ipsrc = ? "
 					"WHERE uid = ? AND network_uid = ?;";
 
+
+static sqlite3_stmt *ipv4_allocate_stmt;
+static char *ipv4_allocate_sql = "INSERT INTO ipv4 (network_uid, node_uid, address, date) "
+					"VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
+					"ON CONFLICT (network_uid, address) DO UPDATE "
+					"SET node_uid = ?, date = CURRENT_TIMESTAMP "
+					"WHERE ipv4.network_uid = ? AND address = ?;";
+
+
 /* FIXME need ipv4 table first
 static sqlite3_stmt *node_list_stmt;
 static char *node_list_sql = "SELECT node.uid, node.description, node.provekey, ipv4.address, node.status, node.date "
@@ -552,7 +561,7 @@ ldb_network_embassy_get(const char *uid, const unsigned char **embassy_passport,
 		goto error;
 	}
 
-	printf("expand: %s\n", sqlite3_expanded_sql(network_embassy_get_stmt));
+	//printf("expand: %s\n", sqlite3_expanded_sql(network_embassy_get_stmt));
 
 	ret = sqlite3_step(network_embassy_get_stmt);
 	if (ret != SQLITE_ROW) {
@@ -588,7 +597,7 @@ ldb_network_serial_inc(const char *uid)
 		goto error;
 	}
 
-	printf("expand: %s\n", sqlite3_expanded_sql(network_serial_inc_stmt));
+	//printf("expand: %s\n", sqlite3_expanded_sql(network_serial_inc_stmt));
 
 	ret = sqlite3_step(network_serial_inc_stmt);
 	if (ret != SQLITE_DONE) {
@@ -700,7 +709,7 @@ ldb_node_delete(const char *node_description, const char *network_description,
 		goto error;
 	}
 
-	printf("expand: %s\n", sqlite3_expanded_sql(node_delete_stmt));
+	//printf("expand: %s\n", sqlite3_expanded_sql(node_delete_stmt));
 
 	*node_uid = sqlite3_column_text(node_delete_stmt, 0);
 	*network_uid = sqlite3_column_text(node_delete_stmt, 1);
@@ -755,6 +764,67 @@ ldb_node_status_set(int status, const char *ipsrc,
 	}
 
 	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+int
+ldb_ipv4_allocate(const char *network_uid, const char *node_uid, const char *address)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(ipv4_allocate_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_allocate_stmt, 1, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_allocate_stmt, 2, node_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_allocate_stmt, 3, address, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_allocate_stmt, 4, node_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_allocate_stmt, 5, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_allocate_stmt, 6, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(ipv4_allocate_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
 	return (-1);
@@ -870,6 +940,12 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare(ldb, ipv4_allocate_sql, -1, &ipv4_allocate_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -940,7 +1016,7 @@ main(void)
 
 	ldb_node_status_set(1, "127.0.0.1", "my_node_uid2", "my_uid");
 
-	sqlite3_db_cacheflush(ldb);
+	ldb_ipv4_allocate("my_uid", "my_node_uid2", "192.168.0.1");
 
 	ldb_fini();
 

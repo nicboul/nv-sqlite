@@ -45,7 +45,7 @@ static char *network_create_sql = "INSERT INTO network (email, uid, description,
 
 // FIXME we need uid for this query
 static sqlite3_stmt *network_get_stmt;
-static char *network_get_sql = "SELECT uid, subnet, netmask FROM network "
+static char *network_get_sql = "SELECT uid, subnet, netmask, ipv4_last FROM network "
 				"WHERE email = ? "
 				"AND description = ?;";
 
@@ -81,6 +81,17 @@ static sqlite3_stmt *node_status_set_stmt;
 static char *node_status_set_sql = "UPDATE node "
 					"SET status = ?, ipsrc = ? "
 					"WHERE uid = ? AND network_uid = ?;";
+
+/* FIXME need ipv4 table first
+static sqlite3_stmt *node_list_stmt;
+static char *node_list_sql = "SELECT node.uid, node.description, node.provekey, ipv4.address, node.status, node.date "
+				"FROM node, network, ipv4 "
+				"WHERE node.network_uid = ? "
+				"AND network.uid = node.network_uid "
+				"AND node.uid = ipv4.node_uid "
+				"AND network.email = (SELECT email from client WHERE email = ? AND apikey = ? AND status = 1);",
+*/
+
 
 
 // FIXME create foreign key from network + ON DELETE CASCADE and ON UPDATE CASCADE
@@ -352,9 +363,9 @@ error:
 
 int
 ldb_network_create(const char *email, const char *uid, const char *description,
-	    const char *subnet, const char *netmask,
-	    const char *embassy_certificate, const char *embassy_privatekey,
-	    const char *passport_certificate, const char *passport_privatekey)
+	const char *subnet, const char *netmask,
+	const char *embassy_certificate, const char *embassy_privatekey,
+	const char *passport_certificate, const char *passport_privatekey)
 {
 	int	ret;
 	int	line;
@@ -438,7 +449,8 @@ error:
 
 int
 ldb_network_get(const char *email, const char *description,
-	    const unsigned char **uid, const unsigned char **subnet, const unsigned char **netmask)
+	const unsigned char **uid, const unsigned char **subnet,
+	const unsigned char **netmask, const unsigned char **ipv4_last)
 {
 	int	ret;
 	int	line;
@@ -470,6 +482,7 @@ ldb_network_get(const char *email, const char *description,
 	*uid = sqlite3_column_text(network_get_stmt, 0);
 	*subnet = sqlite3_column_text(network_get_stmt, 1);
 	*netmask = sqlite3_column_text(network_get_stmt, 2);
+	*ipv4_last = sqlite3_column_text(network_get_stmt, 3);
 
 	return (0);
 error:
@@ -896,9 +909,10 @@ main(void)
 	const unsigned char *uid = NULL;
 	const unsigned char *subnet = NULL;
 	const unsigned char *netmask = NULL;
+	const unsigned char *ipv4_last = NULL;
 
-	ldb_network_get("my_email", "my_description", &uid, &subnet, &netmask);
-	printf("uid: %s, subnet: %s, netmask: %s\n", uid, subnet, netmask);
+	ldb_network_get("my_email", "my_description", &uid, &subnet, &netmask, &ipv4_last);
+	printf("uid: %s, subnet: %s, netmask: %s, ipv4_last:%s\n", uid, subnet, netmask, ipv4_last);
 
 	ldb_network_list("my_email", "reset_apikey", network_list_cb, NULL);
 

@@ -15,6 +15,7 @@ date text default CURRENT_TIMESTAMP,
 description text not null,
 subnet text not null,
 netmask text not null,
+ipv4_last text,
 embassy_certificate text not null,
 embassy_privatekey text not null,
 embassy_serial integer not null DEFAULT 1,
@@ -35,11 +36,9 @@ prov_date text,
 UNIQUE(network_uid, description)
 ) strict;
 
-sqlite> .schema ipv4
 CREATE TABLE ipv4 (
-network_uid text not null,
-node_uid text,
-address text,
+network_uid text not null unique,
+node_uid text unique,
+address text unique,
 date text
 ) strict;
-sqlite>

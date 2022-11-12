@@ -99,6 +99,11 @@ static sqlite3_stmt *ipv4_delete_stmt;
 static char *ipv4_delete_sql = "DELETE FROM ipv4 "
 				"WHERE network_uid = ?;";
 
+static sqlite3_stmt *ipv4_available_stmt;
+static char *ipv4_available_sql = "SELECT address FROM ipv4 "
+					"WHERE network_uid = ? AND node_uid IS NULL "
+					"ORDER BY address ASC "
+					"LIMIT 1;";
 /* FIXME need ipv4 table first
 static sqlite3_stmt *node_list_stmt;
 static char *node_list_sql = "SELECT node.uid, node.description, node.provekey, ipv4.address, node.status, node.date "
@@ -906,6 +911,39 @@ error:
 	return (-1);
 }
 
+int
+ldb_ipv4_available(const char *network_uid, const unsigned char **ipv4_available)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(ipv4_available_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_available_stmt, 1, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(ipv4_available_stmt);
+	if (ret != SQLITE_ROW) {
+		line = __LINE__;
+		goto error;
+	}
+
+	*ipv4_available = sqlite3_column_text(ipv4_available_stmt, 0);
+
+	return (0);
+
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
 void
 ldb_fini()
 {
@@ -1034,6 +1072,12 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare(ldb, ipv4_available_sql, -1, &ipv4_available_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -1107,7 +1151,13 @@ main(void)
 	ldb_ipv4_allocate("my_uid", "my_node_uid2", "192.168.0.1");
 	ldb_ipv4_release("my_uid", "my_node_uid2");
 	ldb_ipv4_delete("my_uid");
+
 	ldb_ipv4_allocate("my_uid", "my_node_uid2", "192.168.0.1");
+	ldb_ipv4_release("my_uid", "my_node_uid2");
+
+	const unsigned char *ipv4_available = NULL;
+	ldb_ipv4_available("my_uid", &ipv4_available);
+	printf("next ipv4 available: %s\n", ipv4_available);
 
 	ldb_fini();
 

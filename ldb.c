@@ -95,6 +95,10 @@ static char *ipv4_release_sql = "UPDATE ipv4 "
 				"SET node_uid = NULL, date = CURRENT_TIMESTAMP "
 				"WHERE network_uid = ? AND node_uid = ?;";
 
+static sqlite3_stmt *ipv4_delete_stmt;
+static char *ipv4_delete_sql = "DELETE FROM ipv4 "
+				"WHERE network_uid = ?;";
+
 /* FIXME need ipv4 table first
 static sqlite3_stmt *node_list_stmt;
 static char *node_list_sql = "SELECT node.uid, node.description, node.provekey, ipv4.address, node.status, node.date "
@@ -871,6 +875,37 @@ error:
 	return (-1);
 }
 
+int
+ldb_ipv4_delete(const char *network_uid)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(ipv4_delete_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_delete_stmt, 1, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(ipv4_delete_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
 void
 ldb_fini()
 {
@@ -993,6 +1028,12 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare(ldb, ipv4_delete_sql, -1, &ipv4_delete_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -1065,6 +1106,8 @@ main(void)
 
 	ldb_ipv4_allocate("my_uid", "my_node_uid2", "192.168.0.1");
 	ldb_ipv4_release("my_uid", "my_node_uid2");
+	ldb_ipv4_delete("my_uid");
+	ldb_ipv4_allocate("my_uid", "my_node_uid2", "192.168.0.1");
 
 	ldb_fini();
 

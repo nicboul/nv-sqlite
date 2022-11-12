@@ -65,6 +65,9 @@ static char *network_serial_inc_sql = "UPDATE network "
 					"SET embassy_serial = embassy_serial + 1 "
 					"WHERE uid = ?;";
 
+static sqlite3_stmt *network_ipv4_last_set_stmt;
+static char *network_ipv4_last_set_sql = "UPDATE network SET ipv4_last = ? "
+					"WHERE uid = ?;";
 
 static sqlite3_stmt *node_create_stmt;
 static char *node_create_sql = "INSERT INTO node (network_uid, uid, provkey, description) "
@@ -630,6 +633,47 @@ error:
 }
 
 int
+ldb_network_ipv4_last_set(const char *uid, const char *ipv4_last)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(network_ipv4_last_set_stmt);
+	if (ret != SQLITE_OK ) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_ipv4_last_set_stmt, 1, ipv4_last, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(network_ipv4_last_set_stmt, 2, uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(network_ipv4_last_set_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	if (sqlite3_changes(ldb) != 1) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
+int
 ldb_node_create(const char *network_uid, const char *uid,
 	const char *provkey, const char *description)
 {
@@ -1036,6 +1080,12 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare_v2(ldb, network_ipv4_last_set_sql, -1, &network_ipv4_last_set_stmt, 0);
+	if (ret != SQLITE_OK ) {
+		line = __LINE__;
+		goto error;
+	}
+
 	ret = sqlite3_prepare_v2(ldb, node_create_sql, -1, &node_create_stmt, 0);
 	if (ret != SQLITE_OK) {
 		line = __LINE__;
@@ -1119,6 +1169,7 @@ main(void)
 	const unsigned char *netmask = NULL;
 	const unsigned char *ipv4_last = NULL;
 
+	ldb_network_ipv4_last_set("my_uid", "192.168.0.3");
 	ldb_network_get("my_email", "my_description", &uid, &subnet, &netmask, &ipv4_last);
 	printf("uid: %s, subnet: %s, netmask: %s, ipv4_last:%s\n", uid, subnet, netmask, ipv4_last);
 

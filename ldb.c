@@ -88,8 +88,12 @@ static char *ipv4_allocate_sql = "INSERT INTO ipv4 (network_uid, node_uid, addre
 					"VALUES (?, ?, ?, CURRENT_TIMESTAMP) "
 					"ON CONFLICT (network_uid, address) DO UPDATE "
 					"SET node_uid = ?, date = CURRENT_TIMESTAMP "
-					"WHERE ipv4.network_uid = ? AND address = ?;";
+					"WHERE network_uid = ? AND address = ?;";
 
+static sqlite3_stmt *ipv4_release_stmt;
+static char *ipv4_release_sql = "UPDATE ipv4 "
+				"SET node_uid = NULL, date = CURRENT_TIMESTAMP "
+				"WHERE network_uid = ? AND node_uid = ?;";
 
 /* FIXME need ipv4 table first
 static sqlite3_stmt *node_list_stmt;
@@ -830,6 +834,43 @@ error:
 	return (-1);
 }
 
+int
+ldb_ipv4_release(const char *network_uid, const char *node_uid)
+{
+	int	ret;
+	int	line;
+
+	ret = sqlite3_reset(ipv4_release_stmt);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_release_stmt, 1, network_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_bind_text(ipv4_release_stmt, 2, node_uid, -1, NULL);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
+	ret = sqlite3_step(ipv4_release_stmt);
+	if (ret != SQLITE_DONE) {
+		line = __LINE__;
+		goto error;
+	}
+
+	return (0);
+
+error:
+	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
+	return (-1);
+}
+
 void
 ldb_fini()
 {
@@ -946,6 +987,12 @@ ldb_init(const char *filename)
 		goto error;
 	}
 
+	ret = sqlite3_prepare(ldb, ipv4_release_sql, -1, &ipv4_release_stmt, 0);
+	if (ret != SQLITE_OK) {
+		line = __LINE__;
+		goto error;
+	}
+
 	return (0);
 error:
 	fprintf(stderr, "line:%d %s: ret=%d, changes=%d, %s\n", line, __func__, ret, sqlite3_changes(ldb), sqlite3_errmsg(ldb));
@@ -1017,6 +1064,7 @@ main(void)
 	ldb_node_status_set(1, "127.0.0.1", "my_node_uid2", "my_uid");
 
 	ldb_ipv4_allocate("my_uid", "my_node_uid2", "192.168.0.1");
+	ldb_ipv4_release("my_uid", "my_node_uid2");
 
 	ldb_fini();
 
